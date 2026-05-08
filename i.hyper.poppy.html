@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>i.hyper.poppy — Opium poppy detection from hyperspectral imagery</title>
+</head>
+<body>
+<h2>i.hyper.poppy</h2>
+<em>Opium poppy (Papaver somniferum) detection — max-abundance map from
+built-in multi-stage spectral reference match in a hyperspectral 3D raster</em>
+
+<h3>Synopsis</h3>
+<pre>
+i.hyper.poppy input=name output=name [growth_stage=string] [poppy_db=name]
+              [method=string[,string,...]] [fusion_mode=string]
+              [agreement_threshold=float] [output_prefix=string]
+              [resample=string] [normalize=string] [shift_window=integer]
+              [min_wavelength=float] [max_wavelength=float]
+              [coordinates=east,north]
+              [-n] [-i] [-v] [-c] [-p] [-z]
+</pre>
+
+<h3>Description</h3>
+<p><b>i.hyper.poppy</b> finds the pixels in a hyperspectral 3D raster that
+most closely match <i>Papaver somniferum</i> (opium poppy) using built-in
+canopy-level and leaf-level reference spectra compiled from peer-reviewed
+literature.</p>
+
+<p>The module embeds four reference spectra:</p>
+<ul>
+<li><b>before_flowering</b> — vegetative rosette canopy (June, NW China,
+    65 cm height); ASD FieldSpec Pro 350–2500 nm.
+    Optimal discrimination bands: 438, 528, 736, 754, 1207 nm (JM ≈ 1.20).</li>
+<li><b>flowering</b> — white-petal canopy (July, NW China, 125 cm height);
+    elevated visible reflectance due to large white petals.
+    Optimal bands: 405, 424, 524, 760, 1974 nm (JM ≈ 1.22).</li>
+<li><b>harvesting</b> — mature capsules + senescing leaves (mid-July, NW China,
+    130 cm height).
+    Optimal bands: 468, 726, 746, 982, 1220, 1689 nm (JM ≈ 1.21).</li>
+<li><b>leaf_healthy</b> — asymptomatic leaf-level spectrum (350–800 nm)
+    measured with Li-Cor 1800-12 integrating sphere.</li>
+</ul>
+
+<p>For each pixel the similarity score of all selected spectra is computed and
+the maximum is reported in the output raster.  The optional
+<b>output_prefix=</b> parameter writes per-stage similarity maps alongside
+the main output.</p>
+
+<h3>References</h3>
+<ul>
+<li>Jia K., Wu B., Tian Y., Li Q. &amp; Du X. (2011). Spectral discrimination
+    of opium poppy using field spectrometry. <i>IEEE Trans. Geosci. Remote
+    Sens.</i> 49(9):3414–3422.</li>
+<li>Calderón R., Montes-Borrego M., Landa B.B., Navas-Cortés J.A. &amp;
+    Zarco-Tejada P.J. (2014). Detection of downy mildew of opium poppy using
+    high-resolution multi-spectral and thermal imagery acquired with an
+    unmanned aerial vehicle. <i>Precision Agric.</i></li>
+<li>Wang J. (2013). Unsupervised detection of opium poppy fields in Afghanistan
+    from EO-1 Hyperion data. UNB Technical Report No. 286.</li>
+<li>Bennington A.L. (2008). Application of multi-spectral remote sensing for
+    crop discrimination in Afghanistan. Cranfield University PhD Thesis.</li>
+</ul>
+
+<h3>See also</h3>
+<p>
+<a href="i.hyper.import.html">i.hyper.import</a>,
+<a href="i.hyper.atcorr.html">i.hyper.atcorr</a>,
+<a href="i.hyper.sleuth.html">i.hyper.sleuth</a>,
+<a href="i.hyper.cannabis.html">i.hyper.cannabis</a>
+</p>
+</body>
+</html>
