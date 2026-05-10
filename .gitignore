@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyo
 *.pyd
@@ -7,18 +8,15 @@ __pycache__/
 *.egg
 *.egg-info/
 dist/
-build/
 .eggs/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Virtual environments
 .venv/
 venv/
 env/
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
 
 # Editor
 .vscode/
@@ -34,7 +32,21 @@ Thumbs.db
 # GRASS GIS
 *.db
 *.pack
-
-# Generated/temporary data
 *.tmp
 *.bak
+
+# GRASS Module.make build tree
+OBJ.*/
+build/
+*.o
+*.so
+
+# Debian build artefacts
+debian/.debhelper/
+debian/tmp/
+
+# Standalone binary (DEBIAN_BUILD=1)
+i.hyper.*
+!i.hyper.*.py
+!i.hyper.*.html
+!i.hyper.*.md

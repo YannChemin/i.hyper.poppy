@@ -209,6 +209,20 @@
 
 from __future__ import annotations
 
+# ── ras3d standalone detection ────────────────────────────────────────────────
+import os as _os
+_RAS3D = False
+if not _os.environ.get('GISBASE'):
+    try:
+        import importlib.util as _ilu
+        if _ilu.find_spec('ras3d') and _ilu.find_spec('ras3d_grass_shim'):
+            from ras3d_grass_shim import install as _r3_install
+            _r3_install()
+            _RAS3D = True
+    except Exception:
+        pass
+# ─────────────────────────────────────────────────────────────────────────────
+
 import sys
 import os
 import re
@@ -462,6 +476,16 @@ def _load_g3d_lib():
 
 
 def extract_band(raster3d: str, band_num: int) -> str:
+    if _RAS3D:
+        import ras3d as _r3, ras3d_write as _r3w
+        from ras3d_grass_shim import get_band_cache as _gbc
+        _h = _r3.open_cube(raster3d)
+        _arr = _r3.get_band(_h, band_num - 1)
+        _name = f"_ras3d_band_{band_num}"
+        _gbc()[_name] = _arr
+        _r3w.write_raster2d(_r3w.outpath(_name), _arr, _h)
+        _r3.close_cube(_h)
+        return _name
     lib = _load_g3d_lib()
     z = band_num - 1
     base = raster3d.replace('@', '_').replace('#', '_').replace('.', '_')
@@ -514,6 +538,26 @@ def _convert_wl_nm(wl: float, unit: str) -> float:
 def get_band_info(raster3d: str, only_valid: bool = False,
                   min_wl: Optional[float] = None,
                   max_wl: Optional[float] = None) -> list[dict]:
+    if _RAS3D:
+        import json as _json, ras3d as _r3
+        for _sfx in ('', '.tif', '.tiff', '.h5', '.hdf5'):
+            _base = raster3d.removesuffix(_sfx) if raster3d.endswith(_sfx) else raster3d
+            _wlp = _base + '.wl.json'
+            if _os.path.exists(_wlp):
+                with open(_wlp) as _f:
+                    _wl = _json.load(_f)
+                _wl_nm = [w * 1000 if w < 10 else w for w in _wl]
+                return [{'band': i + 1, 'wavelength': wl, 'fwhm': None,
+                         'valid': True, 'map_name': None}
+                        for i, wl in enumerate(_wl_nm)
+                        if (min_wl is None or wl >= min_wl)
+                        and (max_wl is None or wl <= max_wl)]
+        _h = _r3.open_cube(raster3d)
+        _r = _r3.get_region(_h)
+        _r3.close_cube(_h)
+        return [{'band': i + 1, 'wavelength': float(i + 1), 'fwhm': None,
+                 'valid': True, 'map_name': None}
+                for i in range(_r['depths'])]
     info = gs.raster3d_info(raster3d)
     depths = int(info['depths'])
 
@@ -833,6 +877,12 @@ def resample_reference(ref_wls, ref_vals, sensor_wls,
 
 def load_cube(bands: list[dict], raster3d: str,
               verbose: bool = False) -> np.ndarray:
+    if _RAS3D:
+        import ras3d as _r3
+        _h = _r3.open_cube(raster3d)
+        _cube = _r3.read_all_bands(_h)
+        _r3.close_cube(_h)
+        return _cube
     import grass.script.array as garray
 
     n = len(bands)
