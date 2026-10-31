@@ -1,72 +1,183 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>i.hyper.poppy — Opium poppy detection from hyperspectral imagery</title>
+<title>i.hyper.poppy - GRASS GIS manual</title>
+<meta charset="utf-8">
 </head>
 <body>
-<h2>i.hyper.poppy</h2>
-<em>Opium poppy (Papaver somniferum) detection — max-abundance map from
-built-in multi-stage spectral reference match in a hyperspectral 3D raster</em>
 
-<h3>Synopsis</h3>
-<pre>
-i.hyper.poppy input=name output=name [growth_stage=string] [poppy_db=name]
-              [method=string[,string,...]] [fusion_mode=string]
-              [agreement_threshold=float] [output_prefix=string]
-              [resample=string] [normalize=string] [shift_window=integer]
-              [min_wavelength=float] [max_wavelength=float]
-              [coordinates=east,north]
-              [-n] [-i] [-v] [-c] [-p] [-z]
-</pre>
+<h2>DESCRIPTION</h2>
 
-<h3>Description</h3>
-<p><b>i.hyper.poppy</b> finds the pixels in a hyperspectral 3D raster that
-most closely match <i>Papaver somniferum</i> (opium poppy) using built-in
+<p><em>i.hyper.poppy</em> finds the pixels in a hyperspectral 3D raster that
+most closely match <em>Papaver somniferum</em> (opium poppy), using built-in
 canopy-level and leaf-level reference spectra compiled from peer-reviewed
-literature.</p>
+literature. For each pixel the similarity of every selected reference spectrum
+is computed and the <b>maximum</b> is written to <b>output</b>, so the result
+is a max-abundance map in <b>[0, 1]</b> (0 = no match, 1 = perfect match to
+the best-matching spectrum).</p>
 
-<p>The module embeds four reference spectra:</p>
+<p>Reference spectra are resampled onto the sensor's own wavelength grid
+before matching, and any preprocessing (continuum removal, normalization,
+simplex projection) is applied identically to the reference and to every
+pixel.</p>
+
+<h3>Built-in reference spectra</h3>
+
+<table border="1">
+<tr><th><b>growth_stage</b></th><th>Measurement</th><th>Optimal discrimination bands</th></tr>
+<tr><td><b>before_flowering</b></td><td>Vegetative rosette canopy, June, NW China, 65 cm; ASD FieldSpec Pro 350-2500 nm</td><td>438, 528, 736, 754, 1207 nm (JM ~ 1.20)</td></tr>
+<tr><td><b>flowering</b></td><td>White-petal canopy, July, NW China, 125 cm; elevated visible reflectance from the large white petals</td><td>405, 424, 524, 760, 1974 nm (JM ~ 1.22)</td></tr>
+<tr><td><b>harvesting</b></td><td>Mature capsules and senescing leaves, mid-July, NW China, 130 cm</td><td>468, 726, 746, 982, 1220, 1689 nm (JM ~ 1.21)</td></tr>
+<tr><td><b>leaf_healthy</b></td><td>Asymptomatic leaf-level spectrum, 350-800 nm; Li-Cor 1800-12 integrating sphere</td><td>&mdash;</td></tr>
+</table>
+
+<p><b>growth_stage=all</b> (the default) matches against all four. JM is the
+Jeffries-Matusita separability of poppy against the surrounding crops in the
+source study, not a property of the scene being analysed.</p>
+
+<p><b>poppy_db=</b> appends a supplementary spectrum to the built-in set, as a
+CSV of <tt>wavelength,reflectance</tt> lines or as JSON.</p>
+
+<h3>Similarity methods</h3>
+
+<p><b>method=</b> selects one or more of 19 measures: <b>sam</b> (Spectral
+Angle Mapper, the default), <b>sid</b>, <b>sid_sam</b>, <b>ed</b>, <b>sad</b>,
+<b>sca</b>, <b>cr_sam</b>, <b>cr_ed</b>, <b>gd1</b>, <b>gd2</b>, <b>xcorr</b>,
+<b>dtw</b>, <b>ssim</b>, <b>jsd</b>, <b>bhatt</b>, <b>mtf</b>, <b>cem</b>,
+<b>ensemble</b> and <b>consensus</b>. The scale-invariant ones (<b>sam</b>,
+<b>sca</b>) are insensitive to illumination magnitude; the divergence measures
+(<b>sid</b>, <b>jsd</b>, <b>bhatt</b>) expect spectra on the probability
+simplex and should be combined with the <b>-z</b> flag.</p>
+
+<p><b>method=consensus</b> runs all base methods, calibrates each score map to
+a per-pixel probability through an empirical CDF rank transform, and fuses the
+result according to <b>fusion_mode=</b>: <b>rank_product</b> (the default,
+weighted geometric mean of rank fractions), <b>fisher</b> (chi-squared
+combined probability), <b>stouffer</b> (weighted Z-score),
+<b>group_product</b> (geometric mean within method groups, arithmetic mean
+across them), <b>harmonic</b> (strict: every method must agree) or <b>min</b>
+(strictest). <b>agreement_threshold=</b> sets the calibrated probability above
+which a method counts as agreeing for the per-pixel agreement count.</p>
+
+<h3>Parameters</h3>
+
+<dl>
+<dt><b>input</b></dt><dd>hyperspectral 3D raster, from <em>i.hyper.import</em> or <em>i.hyper.atcorr</em></dd>
+<dt><b>output</b></dt><dd>max-abundance raster</dd>
+<dt><b>output_prefix</b></dt><dd>also write the individual per-stage and per-method similarity maps</dd>
+<dt><b>resample</b></dt><dd><b>linear</b> (default), <b>cubic</b> or <b>pchip</b> interpolation of the reference onto the sensor bands</dd>
+<dt><b>normalize</b></dt><dd><b>none</b> (default), <b>area</b>, <b>max</b>, <b>minmax</b> or <b>vector</b></dd>
+<dt><b>shift_window</b></dt><dd>maximum band shift for the shift-tolerant methods (<b>xcorr</b>, <b>dtw</b>); 0 disables shift tolerance, default 3</dd>
+<dt><b>min_wavelength</b>, <b>max_wavelength</b></dt><dd>restrict matching to a wavelength range; both default to the sensor's own range</dd>
+<dt><b>coordinates</b></dt><dd>east,north for point mode</dd>
+</dl>
+
+<h3>Flags</h3>
+
+<dl>
+<dt><b>-n</b></dt><dd>use only bands marked <tt>valid=1</tt> in the band metadata</dd>
+<dt><b>-i</b></dt><dd>print band coverage and a summary of the built-in spectra, then exit</dd>
+<dt><b>-v</b></dt><dd>print processing details and per-band information</dd>
+<dt><b>-c</b></dt><dd>convex-hull continuum removal of reference and pixel spectra before matching</dd>
+<dt><b>-p</b></dt><dd>point mode: analyse the single pixel at <b>coordinates=</b> and print the full per-method score table</dd>
+<dt><b>-z</b></dt><dd>normalize reference and pixel spectra to unit sum (probability simplex); recommended with <b>sid</b>, <b>jsd</b> and <b>bhatt</b></dd>
+</dl>
+
+<h2>NOTES</h2>
+
+<h3>Input requirements</h3>
+
+<p>Spectra must be surface reflectance. Apply atmospheric correction with
+<em>i.hyper.atcorr</em> or <em>i.hyper.smac</em> first; matching radiance
+against reflectance references is meaningless.</p>
+
+<p>The module reads wavelength metadata written by <em>i.hyper.import</em>,
+either from the <tt>r3.info</tt> history or from per-band <tt>r.support</tt>
+fields.</p>
+
+<h3>Point mode</h3>
+
+<p>Point mode reads the pixel's whole depth column with a single
+<em>r3.what</em> call rather than extracting one 2D raster per band, which on
+a large cube is the difference between under a second and tens of minutes. It
+falls back to per-band extraction if <em>r3.what</em> cannot be used.</p>
+
+<h3>Interpretation</h3>
+
+<p>A high score means the pixel's spectral shape resembles one of the
+reference spectra; it is not by itself an identification. The reference
+spectra come from one growing region and one set of instruments, so the
+absolute score level is not transferable between scenes. Calibrate a threshold
+against known ground for the scene at hand, and prefer <b>method=consensus</b>
+where no such ground is available, since the agreement count makes
+disagreement between methods visible instead of hiding it.</p>
+
+<h2>EXAMPLES</h2>
+
+<p>Match all four built-in spectra with the default SAM:</p>
+
+<div class="code"><pre>
+i.hyper.poppy input=cube output=poppy_max
+</pre></div>
+
+<p>Full consensus run, keeping the per-method maps:</p>
+
+<div class="code"><pre>
+i.hyper.poppy input=cube output=poppy_consensus method=consensus \
+    fusion_mode=stouffer output_prefix=poppy_m
+</pre></div>
+
+<p>Flowering stage only, continuum-removed, over the VNIR alone:</p>
+
+<div class="code"><pre>
+i.hyper.poppy input=cube output=poppy_flower growth_stage=flowering \
+    method=cr_sam -c max_wavelength=1000
+</pre></div>
+
+<p>Inspect one pixel's scores:</p>
+
+<div class="code"><pre>
+i.hyper.poppy -p input=cube output=dummy coordinates=722821.9,4824854.6
+</pre></div>
+
+<h2>REFERENCES</h2>
+
 <ul>
-<li><b>before_flowering</b> — vegetative rosette canopy (June, NW China,
-    65 cm height); ASD FieldSpec Pro 350–2500 nm.
-    Optimal discrimination bands: 438, 528, 736, 754, 1207 nm (JM ≈ 1.20).</li>
-<li><b>flowering</b> — white-petal canopy (July, NW China, 125 cm height);
-    elevated visible reflectance due to large white petals.
-    Optimal bands: 405, 424, 524, 760, 1974 nm (JM ≈ 1.22).</li>
-<li><b>harvesting</b> — mature capsules + senescing leaves (mid-July, NW China,
-    130 cm height).
-    Optimal bands: 468, 726, 746, 982, 1220, 1689 nm (JM ≈ 1.21).</li>
-<li><b>leaf_healthy</b> — asymptomatic leaf-level spectrum (350–800 nm)
-    measured with Li-Cor 1800-12 integrating sphere.</li>
-</ul>
-
-<p>For each pixel the similarity score of all selected spectra is computed and
-the maximum is reported in the output raster.  The optional
-<b>output_prefix=</b> parameter writes per-stage similarity maps alongside
-the main output.</p>
-
-<h3>References</h3>
-<ul>
-<li>Jia K., Wu B., Tian Y., Li Q. &amp; Du X. (2011). Spectral discrimination
-    of opium poppy using field spectrometry. <i>IEEE Trans. Geosci. Remote
-    Sens.</i> 49(9):3414–3422.</li>
+<li>Bennington A.L. (2008). <i>Application of multi-spectral remote sensing
+    for crop discrimination in Afghanistan.</i> PhD thesis, Cranfield
+    University.</li>
 <li>Calderón R., Montes-Borrego M., Landa B.B., Navas-Cortés J.A. &amp;
     Zarco-Tejada P.J. (2014). Detection of downy mildew of opium poppy using
     high-resolution multi-spectral and thermal imagery acquired with an
-    unmanned aerial vehicle. <i>Precision Agric.</i></li>
-<li>Wang J. (2013). Unsupervised detection of opium poppy fields in Afghanistan
-    from EO-1 Hyperion data. UNB Technical Report No. 286.</li>
-<li>Bennington A.L. (2008). Application of multi-spectral remote sensing for
-    crop discrimination in Afghanistan. Cranfield University PhD Thesis.</li>
+    unmanned aerial vehicle. <i>Precision Agriculture</i>.</li>
+<li>Jia K., Wu B., Tian Y., Li Q. &amp; Du X. (2011). Spectral discrimination
+    of opium poppy using field spectrometry. <i>IEEE Transactions on
+    Geoscience and Remote Sensing</i> 49(9):3414-3422.</li>
+<li>Kruse F.A. et al. (1993). The Spectral Image Processing System (SIPS):
+    interactive visualization and analysis of imaging spectrometer data.
+    <i>Remote Sensing of Environment</i> 44(2-3):145-163.</li>
+<li>Wang J. (2013). <i>Unsupervised detection of opium poppy fields in
+    Afghanistan from EO-1 Hyperion data.</i> UNB Technical Report No. 286.</li>
 </ul>
 
-<h3>See also</h3>
+<h2>SEE ALSO</h2>
+
 <p>
-<a href="i.hyper.import.html">i.hyper.import</a>,
-<a href="i.hyper.atcorr.html">i.hyper.atcorr</a>,
-<a href="i.hyper.sleuth.html">i.hyper.sleuth</a>,
-<a href="i.hyper.cannabis.html">i.hyper.cannabis</a>
+<em><a href="i.hyper.atcorr.html">i.hyper.atcorr</a></em>,
+<em><a href="i.hyper.cannabis.html">i.hyper.cannabis</a></em>,
+<em><a href="i.hyper.import.html">i.hyper.import</a></em>,
+<em><a href="i.hyper.sleuth.html">i.hyper.sleuth</a></em>,
+<em><a href="i.hyper.spectroscopy.html">i.hyper.spectroscopy</a></em>,
+<em><a href="https://grass.osgeo.org/grass-stable/manuals/r3.info.html">r3.info</a></em>,
+<em><a href="https://grass.osgeo.org/grass-stable/manuals/r3.what.html">r3.what</a></em>
 </p>
+
+<h2>AUTHORS</h2>
+
+<p>Yann Chemin, GRASS Development Team.</p>
+
+<p>Part of the <em>i.hyper</em> module family for VNIR-SWIR hyperspectral data
+processing in GRASS GIS.</p>
+
 </body>
 </html>

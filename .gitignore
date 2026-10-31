@@ -50,3 +50,4 @@ i.hyper.*
 !i.hyper.*.py
 !i.hyper.*.html
 !i.hyper.*.md
+references/

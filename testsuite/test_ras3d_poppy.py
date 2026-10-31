@@ -7,7 +7,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from test_ras3d_common import (
     WYVERN_PATH, TANAGER_PATH,
     skip_without_ras3d, skip_without_wyvern, skip_without_tanager,
-    open_cube_checked, assert_band_valid, install_ras3d_shim, make_wl_sidecar,
+    open_cube_checked, assert_band_valid, install_ras3d_shim, make_wl_sidecar, load_addon,
+    remove_wl_sidecar,
 )
 
 
@@ -75,8 +76,7 @@ def test_extract_band_ras3d(tmp_path):
     """extract_band() in ras3d mode populates band cache and writes GeoTIFF."""
     install_ras3d_shim()
     os.environ['RAS3D_OUTDIR'] = str(tmp_path)
-    sys.path.insert(0, '/home/yann/dev/i.hyper.poppy')
-    import i_hyper_poppy
+    i_hyper_poppy = load_addon('i.hyper.poppy')
     name = i_hyper_poppy.extract_band(WYVERN_PATH, 5)
     from ras3d_grass_shim import get_band_cache
     assert name in get_band_cache()
@@ -92,11 +92,10 @@ def test_wavelength_sidecar():
     h, r = open_cube_checked(WYVERN_PATH)
     sidecar, _ = make_wl_sidecar(WYVERN_PATH, r['depths'])
     ras3d.close_cube(h)
-    sys.path.insert(0, '/home/yann/dev/i.hyper.poppy')
-    import i_hyper_poppy
+    i_hyper_poppy = load_addon('i.hyper.poppy')
     bands = i_hyper_poppy.get_band_info(WYVERN_PATH)
     assert len(bands) == r['depths']
-    os.unlink(sidecar)
+    remove_wl_sidecar(sidecar)
 
 
 @skip_without_ras3d

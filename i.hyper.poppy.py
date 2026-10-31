@@ -525,19 +525,69 @@ def _parse_wl_from_r3info(raster3d: str) -> dict[int, tuple]:
 
 def _convert_wl_nm(wl: float, unit: str) -> float:
     u = unit.lower().strip()
-    if u in ('nm', 'nanometer', 'nanometers'):
+    if u in ('nm', 'nanometer', 'nanometers', 'nanometre', 'nanometres'):
         return wl
-    if u in ('um', 'µm', 'micrometer', 'micron', 'microns'):
+    if u in ('um', 'µm', 'micrometer', 'micrometers', 'micrometre',
+             'micrometres', 'micron', 'microns'):
         return wl * 1000.0
-    if u in ('m', 'meter', 'meters'):
+    if u in ('m', 'meter', 'meters', 'metre', 'metres'):
         return wl * 1e9
     gs.warning(f"Unknown wavelength unit '{unit}'; assuming nm")
     return wl
 
 
+def _load_hyper_json_bands(raster3d: str) -> list[dict]:
+    """Read wavelength/fwhm/validity from i.hyper.import's JSON sidecar.
+
+    i.hyper.import (HyperMetadata) stores band metadata at
+    $MAPSET/grid3/<mapname>/hyper.json rather than in r3.support history,
+    so that must be checked before falling back to r3.info/r.info.
+    """
+    import json as _json
+
+    name, mapset = (raster3d.split('@', 1) if '@' in raster3d
+                     else (raster3d, None))
+    try:
+        env = gs.gisenv()
+        mapset = mapset or env['MAPSET']
+        path = os.path.join(env['GISDBASE'], env['LOCATION_NAME'], mapset,
+                            'grid3', name, 'hyper.json')
+    except Exception:
+        return []
+
+    if not os.path.isfile(path):
+        return []
+
+    with open(path) as _fj:
+        data = _json.load(_fj)
+
+    b = data.get('bands') or {}
+    wavelengths = b.get('wavelength')
+    if not wavelengths:
+        return []
+    fwhms = b.get('fwhm') or []
+    valids = b.get('validity') or []
+
+    return [{'band': i + 1, 'wavelength': float(wl),
+             'fwhm': float(fwhms[i]) if i < len(fwhms) else None,
+             'valid': bool(valids[i]) if i < len(valids) else True,
+             'map_name': None}
+            for i, wl in enumerate(wavelengths)]
+
+
 def get_band_info(raster3d: str, only_valid: bool = False,
                   min_wl: Optional[float] = None,
                   max_wl: Optional[float] = None) -> list[dict]:
+    json_bands = _load_hyper_json_bands(raster3d)
+    if json_bands:
+        json_bands = [b for b in json_bands
+                      if (min_wl is None or b['wavelength'] >= min_wl)
+                      and (max_wl is None or b['wavelength'] <= max_wl)
+                      and (not only_valid or b['valid'])]
+        if json_bands:
+            json_bands.sort(key=lambda b: b['wavelength'])
+            return json_bands
+
     if _RAS3D:
         import json as _json, ras3d as _r3
         for _sfx in ('', '.tif', '.tiff', '.h5', '.hdf5'):
@@ -898,8 +948,7 @@ def load_cube(bands: list[dict], raster3d: str,
             map_name = extract_band(raster3d, b['band'])
             b['map_name'] = map_name
 
-        arr = garray.array()
-        arr.read(map_name)
+        arr = garray.array(mapname=map_name)
         band_data = np.asarray(arr, dtype=np.float32)
 
         if cube is None:
@@ -912,8 +961,70 @@ def load_cube(bands: list[dict], raster3d: str,
     return cube
 
 
+def _spectrum_via_r3what(raster3d: str, east: float,
+                         north: float) -> list[float] | None:
+    """Read one pixel's whole depth column with a single r3.what call.
+
+    Returns one value per depth of the cube, indexed by depth, so the caller
+    reads band *n* as ``values[n - 1]``; ``None`` if r3.what is unavailable or
+    returns an unexpected number of values, so the caller can fall back to
+    per-band slicing.
+
+    r3.what reads only the voxels asked for, so a whole spectrum comes back in
+    well under a second. Extracting one 2D raster per band to query a single
+    pixel costs minutes on a large cube, because every band pays for the whole
+    scene.
+
+    r3.what reports one value per depth of the computational region, not of
+    the map, so the region's depth window is aligned to the cube's own stack
+    first. That happens inside a temporary region, which leaves the caller's
+    region untouched.
+    """
+    from grass.exceptions import CalledModuleError
+
+    try:
+        depths = int(gs.raster3d_info(raster3d)['depths'])
+    except (CalledModuleError, KeyError, ValueError):
+        return None
+    try:
+        gs.use_temp_region()
+    except (CalledModuleError, OSError):
+        return None
+    try:
+        gs.run_command('g.region', raster_3d=raster3d, quiet=True)
+        out = gs.read_command('r3.what', input=raster3d,
+                              coordinates=f"{east},{north}",
+                              null_value='nan', quiet=True)
+    except CalledModuleError:
+        return None
+    finally:
+        gs.del_temp_region()
+    line = next((ln for ln in out.splitlines() if ln.strip()), '')
+    # east|north|depth 1|depth 2|... in the cube's own depth order.
+    parts = line.split('|')[2:]
+    if len(parts) != depths:
+        gs.verbose(
+            f"r3.what returned {len(parts)} values for a {depths}-depth cube; "
+            "falling back to 2D slice extraction"
+        )
+        return None
+    values = []
+    for v in parts:
+        try:
+            values.append(float(v))
+        except ValueError:
+            values.append(float('nan'))
+    return values
+
+
 def read_pixel_spectrum(bands: list[dict], raster3d: str,
                         east: float, north: float) -> np.ndarray:
+    column = _spectrum_via_r3what(raster3d, east, north)
+    if column is not None:
+        return np.array([column[b['band'] - 1] for b in bands],
+                        dtype=np.float64)
+
+    gs.verbose("Falling back to per-band 2D slice extraction…")
     coords = f"{east},{north}"
     spec = []
     for b in bands:
@@ -1058,7 +1169,13 @@ EPS = 1e-12
 
 
 def _safe_cube(cube: np.ndarray) -> np.ndarray:
-    return np.where(np.isfinite(cube), cube, 0.0)
+    # In place: np.where() would copy the whole cube, doubling peak memory
+    # on a multi-GB cube, and under NumPy 1.x also upcast float32 to
+    # float64. Sanitizing is idempotent, so the repeated calls from each
+    # match_* function are cheap no-ops after the first.
+    if not np.isfinite(cube).all():
+        np.nan_to_num(cube, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return cube
 
 
 def match_sam(cube: np.ndarray, ref: np.ndarray) -> np.ndarray:
@@ -1644,6 +1761,16 @@ def point_analysis(pixel_spec: np.ndarray, ref: np.ndarray,
     scores: dict[str, float] = {}
     for mth in methods:
         if mth in ('ensemble', 'consensus'):
+            continue
+        if mth in GLOBAL_STATS_METHODS:
+            # MTF and CEM estimate the scene covariance from the
+            # pixels given to them. On a single pixel that
+            # covariance is undefined (n - 1 = 0), so the score
+            # would be an artefact of the regularisation term
+            # rather than a measurement. Skip them loudly instead.
+            gs.warning(
+                f"Method <{mth}> needs the image covariance and cannot "
+                "be computed for a single pixel; skipped.")
             continue
         smap = compute_method(mth, cube1, ref, wavelengths, shift_window, scores)
         scores[mth] = float(smap[0, 0])
